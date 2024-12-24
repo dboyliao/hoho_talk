@@ -1,26 +1,21 @@
+OLLAMA_HOST?=127.0.0.1:11434
+
 start-ollama:
 	@if [ "$$(docker container ls -f Name=ollama -q)" ]; then \
 		echo "ollama is already running"; \
 	else \
-		docker run -d --gpus=all --network host --rm -v /mnt/Data/ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama; \
+		docker run -d --gpus=all --network host \
+		--rm -v /mnt/Data/ollama:/root/.ollama \
+		-e OLLAMA_HOST=$(OLLAMA_HOST) \
+		--name ollama ollama/ollama; \
 	fi
 
-start-letta: start-ollama
-	@mkdir -p letta-workspace && \
-	cd letta-workspace && \
-	OLLAMA_BASE_URL=http://localhost:11434 letta server > server.log 2>&1 & \
-	if [ $$? -eq 0 ]; then \
-		echo "start letta success"; \
-	else \
-		echo "start letta failed"; \
+stop-ollama:
+	@if [ "$$(docker container ls -f Name=ollama -q)" ]; then \
 		docker container stop ollama; \
+	else \
+		echo "ollama is not running"; \
 	fi
-
-stop-letta:
-	@kill $$(ps aux | grep "letta server" | grep -v grep | awk '{print $$2}') | xargs -I % kill %
-
-clear-letta:
-	@rm -rf letta-workspace/* ~/.letta/*
 
 start-open-webui: start-ollama
 	docker run -d \
