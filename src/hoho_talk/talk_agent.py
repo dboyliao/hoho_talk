@@ -1,11 +1,19 @@
 import json
 import logging
+from copy import deepcopy
 from typing import Optional
 
-from ollama import Client
+from ollama import Client, Message
 
-from .data import AgentResponse, ConversationMessage, CriticResponse
-from .utils import format_conversation, parse_json_response
+from .data import (
+    AgentResponse,
+    BlockType,
+    ContextBlock,
+    ConversationMessage,
+    CriticResponse,
+)
+from .tools import ToolRegistry
+from .utils import dedup_tool_calls, format_conversation, parse_json_response
 
 _logger = logging.getLogger(__name__)
 
@@ -20,19 +28,58 @@ class OllamaAgent:
 
 class OllamaTalkAgent(OllamaAgent):
     def __init__(
-        self, name, persona, client=None, model="qwq:latest", revision_trials=3
+        self,
+        name,
+        persona,
+        client=None,
+        model="qwq:latest",
+        revision_trials=3,
+        historical_context_blocks: list[ContextBlock] = None,
+        extra_sys_prompt: Optional[str] = None,
     ):
         super().__init__(client)
+        if historical_context_blocks is None:
+            historical_context_blocks = []
+        else:
+            historical_context_blocks = deepcopy(historical_context_blocks)
+            for block in historical_context_blocks:
+                block.message_id = None
         self.__model = model[:]
         self.__name = name[:]
         self.__persona = persona[:]
-        self.__sys_prompt = """\
+        example_blocks = [
+            ContextBlock(block_type=block_type.value, block_content="...")
+            for block_type in BlockType
+        ]
+        block_example_str = "\n".join([str(block) for block in example_blocks])
+        self.__sys_prompt = f"""\
 You are a helpful assistant.
-Your task is to give a possible text response by a person given his/her persona.
+Your task is to give a possible text response by a person (the 'respondent') given his/her persona.
 
 When derieving the text response, also come up with a rationale of it.
 The text response MUST be in the same language as the conversation.
+
+You might be provided with the context of the conversation which consists of multiple blocks.
+For example:
+```
+{block_example_str}
+```
 """
+        self.__sys_prompt += (
+            "The description of the context block types are as follows:\n"
+        )
+        for block in example_blocks:
+            self.__sys_prompt += f"""\
+- {block.block_type!r}: {block.block_type.description}
+"""
+
+        #         self.__sys_prompt += """\
+
+        # You also have access to the tool, `insert_context_block`, which allows you to update the context blocks.
+        # Use the `insert_context_block` tool when there is significant information in the conversation which is not included in the context blocks."""
+        if extra_sys_prompt is not None:
+            self.__sys_prompt += "\n\n" + extra_sys_prompt
+        self.__context_blocks = historical_context_blocks
         self.__revision_trials = revision_trials
 
     @property
@@ -64,7 +111,7 @@ The text response MUST be in the same language as the conversation.
         conversation_str = format_conversation(conversation)
         _logger.debug("conversation:\n%s", conversation_str)
         messages = [
-            {"role": "system", "content": self.__sys_prompt},
+            {"role": "system", "content": self.__compile_sys_prompt()},
             {
                 "role": "user",
                 "content": f"The person you will represent in the conversation is {self.__name}.",
@@ -96,11 +143,6 @@ Write me your response in JSON, which complies with the following schema:
 ```
 """,
             },
-            {
-                "role": "user",
-                "content": "Write me ONLY your response and nothing else.",
-            },
-            {"role": "assistant", "content": "Here you go:"},
         ]
         chat_response = self._client.chat(
             model=self.__model,
@@ -141,6 +183,18 @@ Write me your response in JSON, which complies with the following schema:
                     self.__revision_trials,
                 )
         return revised_response
+
+    def __compile_sys_prompt(self):
+        sys_prompt = f"""\
+{self.__sys_prompt}
+
+"""
+        for block in self.__context_blocks:
+            sys_prompt += "The conversation context:\n"
+            sys_prompt += f"""\
+{block}
+"""
+        return sys_prompt.strip()
 
 
 class OllamaCriticAgent(OllamaAgent):

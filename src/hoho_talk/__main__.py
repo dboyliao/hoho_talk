@@ -3,6 +3,9 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+from typing import Optional
+
+import click
 
 from .data import ConversationContext
 from .talk_agent import OllamaTalkAgent
@@ -13,8 +16,8 @@ def main(
     whoami: str,
     persona_file: Path,
     load_conversation: Path,
-    save_conversation: bool,
     model: str = "qwq:latest",
+    save_directory: Optional[str] = None,
 ):
     conversation = []
     if load_conversation is not None and load_conversation.exists():
@@ -24,34 +27,38 @@ def main(
         persona = f.read()
     agent = OllamaTalkAgent(persona=persona, name=name, model=model)
     time_str = dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    conv_dir = f"conv-{whoami}-{name}".replace(" ", "_")
+    conv_dir = "conv" if save_directory is None else save_directory
+    names_prefix = f"{whoami}-{name}".replace(" ", "_")
     if not os.path.exists(conv_dir):
         os.mkdir(conv_dir)
-    conv_logs = f"{conv_dir}/{time_str}.txt"
-    print(
-        "'submit' or empty input to submit your message and get response; 'quit' or 'q' to exit;\n"
+    conv_logs = f"{conv_dir}/{names_prefix}-{time_str}.txt"
+    click.secho(
+        "'submit' or empty input to submit your message and get response; 'quit' or 'q' to exit;\n",
+        bold=True,
     )
     with ConversationContext() as ctx:
         for msg in conversation:
-            ctx.add_message(by=msg["by"], content=msg["content"])
+            ctx.add_message(**msg)
         for msg in ctx.conversation:
-            print(f"{msg.by}: {msg.content}\n")
+            click.echo(f"{msg}\n")
         while True:
             user_input = input(f"{whoami}: ").strip()
             match user_input.lower():
                 case "quit" | "q":
-                    if not save_conversation:
-                        save_conversation = input(
-                            "Save conversation? (y/n): "
-                        ).strip().lower() in ["y", "yes"]
+                    save_conversation = input(
+                        "Save conversation? (y/n): "
+                    ).strip().lower() in ["y", "yes"]
                     break
                 case "submit" | "":
-                    print("\r", end="")
                     agent_response = _safe_get_agent_response(agent, ctx)
-                    print(
-                        f"{name} (mood: '{agent_response.mood}({agent_response.sentiment})', tone: {agent_response.tone!r}): {agent_response.text_response}"
+                    ctx.add_message(
+                        by=agent.name,
+                        content=agent_response.text_response,
+                        mood=agent_response.mood,
+                        tone=agent_response.tone,
+                        sentiment=agent_response.sentiment,
                     )
-                    ctx.add_message(by=agent.name, content=agent_response.text_response)
+                    click.echo(f"{ctx.conversation[-1]}")
                 case "s":
                     save_conversation = True
                 case _:
@@ -59,7 +66,7 @@ def main(
         if save_conversation and ctx.conversation:
             with open(conv_logs, "w") as fid:
                 for msg in ctx.conversation:
-                    fid.write(f"{msg.by}: {msg.content}\n")
+                    fid.write(f"{msg}\n")
             with open(conv_logs.replace(".txt", ".json"), "w") as fid:
                 fid.write(ctx.model_dump_json(indent=4))
 
@@ -92,9 +99,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-s",
-        "--save-conversation",
-        action="store_true",
-        help="save the conversation after exit",
+        "--save-directory",
+        help="the directory to save the conversation logs/records",
     )
     kwargs = vars(parser.parse_args())
     main(**kwargs)

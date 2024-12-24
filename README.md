@@ -15,3 +15,7 @@ $ uv run python -m hoho_talk --persona-file examples/persona/kol_persona.txt  --
 # To Do
 - [ ] Agent memory
 - [ ] Conversation context support 
+
+# Reference
+- https://research.character.ai/prompt-design-at-character-ai/
+- https://github.com/letta-ai/letta
