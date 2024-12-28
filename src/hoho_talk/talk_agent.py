@@ -3,7 +3,7 @@ import logging
 from copy import deepcopy
 from typing import Optional
 
-from ollama import Client, Message
+from ollama import Client
 
 from .data import (
     AgentResponse,
@@ -69,6 +69,7 @@ For example:
             "The description of the context block types are as follows:\n"
         )
         for block in example_blocks:
+            block.model_dump
             self.__sys_prompt += f"""\
 - {block.block_type!r}: {block.block_type.description}
 """

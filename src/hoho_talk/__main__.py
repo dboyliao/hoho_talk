@@ -7,7 +7,7 @@ from typing import Optional
 
 import click
 
-from .data import ConversationContext
+from .data import ContextBlock, ConversationContext
 from .talk_agent import OllamaTalkAgent
 
 
@@ -15,7 +15,8 @@ def main(
     name: str,
     whoami: str,
     persona_file: Path,
-    load_conversation: Path,
+    load_conversation: Optional[Path] = None,
+    context_blocks_file: Optional[Path] = None,
     model: str = "qwq:latest",
     save_directory: Optional[str] = None,
 ):
@@ -23,9 +24,20 @@ def main(
     if load_conversation is not None and load_conversation.exists():
         with load_conversation.open("r") as fid:
             conversation = json.load(fid)["conversation"]
+    context_blocks: list[ContextBlock] = []
+    if context_blocks_file is not None and context_blocks_file.exists():
+        with context_blocks_file.open("r") as fid:
+            context_blocks = [
+                ContextBlock.model_validate_json(cb) for cb in json.load(fid)
+            ]
     with persona_file.open("r") as f:
         persona = f.read()
-    agent = OllamaTalkAgent(persona=persona, name=name, model=model)
+    agent = OllamaTalkAgent(
+        persona=persona,
+        name=name,
+        model=model,
+        historical_context_blocks=context_blocks,
+    )
     time_str = dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     conv_dir = "conv" if save_directory is None else save_directory
     names_prefix = f"{whoami}-{name}".replace(" ", "_")
@@ -95,6 +107,12 @@ if __name__ == "__main__":
         "-l",
         "--load-conversation",
         help="the conversation file to load",
+        type=Path,
+    )
+    parser.add_argument(
+        "-c",
+        "--context-blocks-file",
+        help="the context blocks file to load",
         type=Path,
     )
     parser.add_argument(
