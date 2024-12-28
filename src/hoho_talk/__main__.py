@@ -91,7 +91,7 @@ def _safe_get_agent_response(agent: OllamaTalkAgent, ctx: ConversationContext):
             ...
 
 
-if __name__ == "__main__":
+def get_parser():
     parser = argparse.ArgumentParser(description="Hoho Talk CLI")
     parser.add_argument("--name", help="the name of the agent", required=True)
     parser.add_argument("-m", "--model", help="the model to use", default="qwq:latest")
@@ -120,5 +120,17 @@ if __name__ == "__main__":
         "--save-directory",
         help="the directory to save the conversation logs/records",
     )
+    return parser
+
+
+def run_main():
+    parser = get_parser()
     kwargs = vars(parser.parse_args())
-    main(**kwargs)
+    try:
+        main(**kwargs)
+    except KeyboardInterrupt:
+        click.secho("Bye!", bold=True)
+
+
+if __name__ == "__main__":
+    run_main()

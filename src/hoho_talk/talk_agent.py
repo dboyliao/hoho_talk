@@ -112,7 +112,6 @@ For example:
         conversation_str = format_conversation(conversation)
         _logger.debug("conversation:\n%s", conversation_str)
         messages = [
-            {"role": "system", "content": self.__compile_sys_prompt()},
             {
                 "role": "user",
                 "content": f"The person you will represent in the conversation is {self.__name}.",
@@ -145,17 +144,45 @@ Write me your response in JSON, which complies with the following schema:
 """,
             },
         ]
-        chat_response = self._client.chat(
-            model=self.__model,
-            messages=messages,
-            options={"temperature": temperature},
-            # format=AgentResponse.model_json_schema(),
+        chat_response = self.__inner_step(
+            messages, current_message=conversation[-1], temperature=temperature
         )
+        return AgentResponse.model_validate_json(
+            parse_json_response(chat_response.message.content.strip())
+        )
+
+    def __inner_step(
+        self,
+        prompt_messages: list[dict],
+        current_message: ConversationMessage,
+        temperature: float,
+    ):
+        tools = [
+            ToolRegistry.get_llm_tool("insert_context_block")[0],
+        ]
+        while True:
+            chat_response = self._client.chat(
+                model=self.__model,
+                messages=[
+                    {"role": "system", "content": self.__compile_sys_prompt(tools)},
+                ]
+                + prompt_messages,
+                options={"temperature": temperature},
+                tools=tools,
+            )
+            if chat_response.message.tool_calls is None:
+                break
+            tool_calls = dedup_tool_calls(chat_response.message.tool_calls)
+            _logger.debug("tool calls: %s", tool_calls)
+            for tool_call in tool_calls:
+                if tool_call.function.name == "insert_context_block":
+                    kwargs = {
+                        "message_id": current_message.message_id,
+                        **json.loads(tool_call.function.arguments),
+                    }
+                    self.__context_blocks.append(ContextBlock(**kwargs))
         _logger.debug("chat response: %s", chat_response.message.content)
-        return AgentResponse(
-            **parse_json_response(chat_response.message.content.strip())
-        )
-        # return AgentResponse.model_validate_json(chat_response.message.content.strip())
+        return chat_response
 
     def __revise_by_critic(
         self,
@@ -185,11 +212,22 @@ Write me your response in JSON, which complies with the following schema:
                 )
         return revised_response
 
-    def __compile_sys_prompt(self):
+    def __compile_sys_prompt(self, tools: list[dict]):
         sys_prompt = f"""\
 {self.__sys_prompt}
 
 """
+        if tools:
+            sys_prompt += """\
+You also have access to the following tools:
+"""
+            for tool in tools:
+                tool_name = tool["function"]["name"]
+                tool_desp = tool["function"]["description"]
+                sys_prompt += f"""\
+- {tool_name}: {tool_desp}
+"""
+            sys_prompt += "\n\n"
         for block in self.__context_blocks:
             sys_prompt += "The conversation context:\n"
             sys_prompt += f"""\

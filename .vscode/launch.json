@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Talking Agent Debugger",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dev/debug.py",
+            "console": "integratedTerminal",
+            "args": [
+                "-p",
+                "${workspaceFolder}/examples/persona/kol_persona.txt",
+                "-w",
+                "${env:LOGNAME}",
+                "--name",
+                "KOL",
+            ]
+        }
+    ]
+}
